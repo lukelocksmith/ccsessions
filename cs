@@ -8,9 +8,35 @@ Użycie: cs [opcjonalny filtr]
 import json, os, sys, subprocess, glob
 from datetime import datetime
 
-SESSIONS_DIR = os.path.expanduser("~/.claude/projects")
-PROJECTS_DIR = os.path.expanduser("~/Projects")
+SESSIONS_DIR  = os.path.expanduser("~/.claude/projects")
+CONFIG_FILE   = os.path.expanduser("~/.config/ccsessions")
 NEW_PROJECT_MARKER = "NEW|+ Nowy projekt"
+
+def load_config():
+    defaults = {
+        "DANGEROUSLY_SKIP_PERMISSIONS": "true",
+        "BROWSER": "chrome",
+        "PROJECTS_DIR": "~/Projects",
+    }
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, val = line.partition("=")
+                    defaults[key.strip()] = val.strip()
+    return defaults
+
+def build_claude_flags(config, resume_id=None):
+    flags = ["claude"]
+    if config.get("DANGEROUSLY_SKIP_PERMISSIONS", "true").lower() == "true":
+        flags.append("--dangerously-skip-permissions")
+    browser = config.get("BROWSER", "chrome").lower()
+    if browser not in ("none", ""):
+        flags.append(f"--{browser}")
+    if resume_id:
+        flags += ["--resume", resume_id]
+    return flags
 
 def decode_path(project_dir):
     if project_dir.startswith("-"):
@@ -55,15 +81,13 @@ def list_sessions(filter_str=""):
                     continue
                 sessions.append({
                     "actual_path": actual_path,
-                    "session_id": os.path.basename(jsonl_file).replace(".jsonl", ""),
-                    "mtime": os.path.getmtime(jsonl_file),
-                    "first_msg": first_msg,
+                    "session_id":  os.path.basename(jsonl_file).replace(".jsonl", ""),
+                    "mtime":       os.path.getmtime(jsonl_file),
+                    "first_msg":   first_msg,
                 })
             except:
                 pass
-
     sessions.sort(key=lambda x: x["mtime"], reverse=True)
-
     if filter_str:
         fl = filter_str.lower()
         sessions = [s for s in sessions
@@ -71,64 +95,49 @@ def list_sessions(filter_str=""):
     return sessions
 
 def format_time(mtime):
-    dt = datetime.fromtimestamp(mtime)
+    dt   = datetime.fromtimestamp(mtime)
     diff = datetime.now() - dt
-    if diff.days == 0:    return dt.strftime("dziś %H:%M")
-    elif diff.days == 1:  return dt.strftime("wczoraj %H:%M")
-    elif diff.days < 7:   return dt.strftime("%A %H:%M")
+    if diff.days == 0:   return dt.strftime("dziś %H:%M")
+    if diff.days == 1:   return dt.strftime("wczoraj %H:%M")
+    if diff.days < 7:    return dt.strftime("%A %H:%M")
     return dt.strftime("%d.%m.%Y")
 
-def resume_session(session):
+def resume_session(session, config):
     print(f"\n→ Projekt: {session['actual_path']}")
     print(f"→ Temat:   {session['first_msg'][:60]}\n")
     if os.path.isdir(session["actual_path"]):
         os.chdir(session["actual_path"])
-    os.execvp("claude", ["claude", "--resume", session["session_id"]])
+    flags = build_claude_flags(config, resume_id=session["session_id"])
+    os.execvp(flags[0], flags)
 
-def create_new_project():
+def create_new_project(config):
     print("\nNazwa nowego projektu: ", end="", flush=True)
     name = input().strip()
     if not name:
         sys.exit(0)
-    project_path = os.path.join(PROJECTS_DIR, name)
+    projects_dir = os.path.expanduser(config.get("PROJECTS_DIR", "~/Projects"))
+    project_path = os.path.join(projects_dir, name)
     if os.path.isdir(project_path):
         print(f"Folder już istnieje: {project_path} — wchodzę...")
     else:
         os.makedirs(project_path)
         print(f"✓ Utworzono: {project_path}")
     os.chdir(project_path)
-    os.execvp("claude", ["claude", "--dangerously-skip-permissions", "--chrome"])
-
-def run_fzf(lines, fzf_bin):
-    return subprocess.run(
-        [fzf_bin,
-         "--height=60%",
-         "--reverse",
-         "--border",
-         "--prompt=Claude> ",
-         "--header=ENTER: otwórz  ESC: anuluj",
-         "--delimiter=|",
-         "--nth=2",
-         "--with-nth=2"],
-        input="\n".join(lines),
-        capture_output=True,
-        text=True
-    )
+    flags = build_claude_flags(config)
+    os.execvp(flags[0], flags)
 
 def main():
+    config     = load_config()
     filter_str = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else ""
-    sessions = list_sessions(filter_str)
-    home = os.path.expanduser("~")
+    sessions   = list_sessions(filter_str)
+    home       = os.path.expanduser("~")
 
-    # Buduj linie: indeks|wyświetlana treść
-    # Nowy projekt zawsze na górze (jeśli brak filtra)
     lines = []
     if not filter_str:
         lines.append(NEW_PROJECT_MARKER)
-
     for i, s in enumerate(sessions):
         project = s["actual_path"].replace(home, "~")
-        msg = s["first_msg"].replace("\n", " ")
+        msg     = s["first_msg"].replace("\n", " ")
         lines.append(f"{i:04d}|{format_time(s['mtime']):<16} {project:<40} {msg}")
 
     if not lines:
@@ -140,7 +149,14 @@ def main():
         fzf_bin = "fzf"
 
     try:
-        result = run_fzf(lines, fzf_bin)
+        result = subprocess.run(
+            [fzf_bin, "--height=60%", "--reverse", "--border",
+             "--prompt=Claude> ",
+             "--header=ENTER: otwórz  ESC: anuluj",
+             "--delimiter=|", "--nth=2", "--with-nth=2"],
+            input="\n".join(lines),
+            capture_output=True, text=True
+        )
     except FileNotFoundError:
         print("Zainstaluj fzf: brew install fzf")
         sys.exit(1)
@@ -153,12 +169,12 @@ def main():
         sys.exit(0)
 
     if selected == NEW_PROJECT_MARKER:
-        create_new_project()
+        create_new_project(config)
         return
 
     try:
         idx = int(selected.split("|")[0])
-        resume_session(sessions[idx])
+        resume_session(sessions[idx], config)
     except (ValueError, IndexError):
         sys.exit(0)
 

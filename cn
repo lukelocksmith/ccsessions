@@ -2,7 +2,30 @@
 # cn — Claude New project
 # Użycie: cn nazwa-projektu
 
+CONFIG_FILE="$HOME/.config/ccsessions"
+
+# Wczytaj config
+DANGEROUSLY_SKIP_PERMISSIONS="true"
+BROWSER="chrome"
 PROJECTS_DIR="$HOME/Projects"
+
+if [ -f "$CONFIG_FILE" ]; then
+    while IFS='=' read -r key val; do
+        [[ "$key" =~ ^#.*$ || -z "$key" ]] && continue
+        key=$(echo "$key" | xargs)
+        val=$(echo "$val" | xargs)
+        case "$key" in
+            DANGEROUSLY_SKIP_PERMISSIONS) DANGEROUSLY_SKIP_PERMISSIONS="$val" ;;
+            BROWSER) BROWSER="$val" ;;
+            PROJECTS_DIR) PROJECTS_DIR="${val/#\~/$HOME}" ;;
+        esac
+    done < "$CONFIG_FILE"
+fi
+
+# Buduj flagi
+CLAUDE_FLAGS=""
+[ "$DANGEROUSLY_SKIP_PERMISSIONS" = "true" ] && CLAUDE_FLAGS="--dangerously-skip-permissions"
+[ "$BROWSER" != "none" ] && [ -n "$BROWSER" ] && CLAUDE_FLAGS="$CLAUDE_FLAGS --$BROWSER"
 
 if [ -z "$1" ]; then
     echo "Użycie: cn nazwa-projektu"
@@ -12,12 +35,11 @@ fi
 PROJECT_PATH="$PROJECTS_DIR/$1"
 
 if [ -d "$PROJECT_PATH" ]; then
-    echo "Folder już istnieje: $PROJECT_PATH"
-    echo "Wchodzę i odpalam Claude..."
+    echo "Folder już istnieje: $PROJECT_PATH — wchodzę..."
 else
     mkdir -p "$PROJECT_PATH"
     echo "✓ Utworzono: $PROJECT_PATH"
 fi
 
 cd "$PROJECT_PATH"
-exec claude --dangerously-skip-permissions --chrome
+exec claude $CLAUDE_FLAGS
