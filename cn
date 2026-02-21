@@ -1,0 +1,23 @@
+#!/bin/bash
+# cn — Claude New project
+# Użycie: cn nazwa-projektu
+
+PROJECTS_DIR="$HOME/Projects"
+
+if [ -z "$1" ]; then
+    echo "Użycie: cn nazwa-projektu"
+    exit 1
+fi
+
+PROJECT_PATH="$PROJECTS_DIR/$1"
+
+if [ -d "$PROJECT_PATH" ]; then
+    echo "Folder już istnieje: $PROJECT_PATH"
+    echo "Wchodzę i odpalam Claude..."
+else
+    mkdir -p "$PROJECT_PATH"
+    echo "✓ Utworzono: $PROJECT_PATH"
+fi
+
+cd "$PROJECT_PATH"
+exec claude --dangerously-skip-permissions --chrome
