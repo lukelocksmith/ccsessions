@@ -118,42 +118,49 @@ def main():
         print("Brak sesji" + (f" pasujących do '{filter_str}'" if filter_str else ""))
         sys.exit(0)
 
-    # Buduj linie dla fzf
+    # Buduj linie dla fzf — indeks na początku żeby wyciągnąć sesję po wyborze
+    home = os.path.expanduser("~")
     lines = []
-    for s in sessions:
+    for i, s in enumerate(sessions):
         time_str = format_time(s["mtime"])
-        project = s["actual_path"].replace("/Users/lukaszek/", "~/").replace("/Users/lukaszek", "~")
+        project = s["actual_path"].replace(home, "~")
         msg = s["first_msg"].replace("\n", " ")
-        line = f"{time_str:<16} {project:<40} {msg}"
+        # Format: "IDX|czas  projekt  wiadomość" — IDX jest ukryty przez --nth
+        line = f"{i:04d}|{time_str:<16} {project:<40} {msg}"
         lines.append(line)
 
     fzf_input = "\n".join(lines)
 
+    fzf_bin = "/opt/homebrew/bin/fzf"
+    if not os.path.exists(fzf_bin):
+        fzf_bin = "fzf"
+
     try:
         result = subprocess.run(
-            ["/opt/homebrew/bin/fzf",
-             "--ansi",
+            [fzf_bin,
              "--height=60%",
              "--reverse",
              "--border",
              "--prompt=Claude session> ",
              "--header=ENTER: wznów sesję  ESC: anuluj",
-             "--preview-window=hidden"],
+             "--delimiter=|",
+             "--nth=2",        # wyświetl tylko część po |
+             "--with-nth=2"],  # ale zachowaj indeks w danych
             input=fzf_input,
             capture_output=True,
             text=True
         )
     except FileNotFoundError:
         # fzf nie znaleziony - wypisz listę numerowaną
-        for i, (s, line) in enumerate(zip(sessions, lines)):
-            print(f"  {i+1:2}. {line}")
+        for i, s in enumerate(sessions):
+            time_str = format_time(s["mtime"])
+            project = s["actual_path"].replace(home, "~")
+            print(f"  {i+1:2}. {time_str:<16} {project:<35} {s['first_msg'][:40]}")
         print(f"\nWybierz numer (1-{len(sessions)}): ", end="")
         try:
-            choice = int(input()) - 1
-            selected = sessions[choice]
+            resume_session(sessions[int(input()) - 1])
         except:
             sys.exit(0)
-        resume_session(selected)
         return
 
     if result.returncode != 0:
@@ -163,11 +170,12 @@ def main():
     if not selected_line:
         sys.exit(0)
 
-    # Znajdź pasującą sesję
-    for i, line in enumerate(lines):
-        if line == selected_line:
-            resume_session(sessions[i])
-            return
+    # Wyciągnij indeks z początku linii (przed |)
+    try:
+        idx = int(selected_line.split("|")[0])
+        resume_session(sessions[idx])
+    except (ValueError, IndexError):
+        sys.exit(0)
 
 def resume_session(session):
     project_path = session["actual_path"]
