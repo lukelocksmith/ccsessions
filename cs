@@ -8,14 +8,16 @@ Użycie: cs [opcjonalny filtr]
 import json, os, sys, subprocess, glob
 from datetime import datetime
 
-SESSIONS_DIR  = os.path.expanduser("~/.claude/projects")
-CONFIG_FILE   = os.path.expanduser("~/.config/ccsessions")
+SESSIONS_DIR       = os.path.expanduser("~/.claude/projects")
+CONFIG_FILE        = os.path.expanduser("~/.config/ccsessions")
 NEW_PROJECT_MARKER = "NEW|+ Nowy projekt"
 
 def load_config():
     defaults = {
         "DANGEROUSLY_SKIP_PERMISSIONS": "true",
-        "BROWSER": "chrome",
+        "BROWSER":      "chrome",
+        "MODEL":        "sonnet",
+        "EFFORT":       "high",
         "PROJECTS_DIR": "~/Projects",
     }
     if os.path.exists(CONFIG_FILE):
@@ -27,14 +29,22 @@ def load_config():
                     defaults[key.strip()] = val.strip()
     return defaults
 
-def build_claude_flags(config, resume_id=None):
+def build_claude_flags(config, resume_id=None, fork=False):
     flags = ["claude"]
     if config.get("DANGEROUSLY_SKIP_PERMISSIONS", "true").lower() == "true":
         flags.append("--dangerously-skip-permissions")
     browser = config.get("BROWSER", "chrome").lower()
     if browser not in ("none", ""):
         flags.append(f"--{browser}")
+    model = config.get("MODEL", "sonnet")
+    if model not in ("none", ""):
+        flags += ["--model", model]
+    effort = config.get("EFFORT", "high")
+    if effort not in ("none", ""):
+        flags += ["--effort", effort]
     if resume_id:
+        if fork:
+            flags.append("--fork-session")
         flags += ["--resume", resume_id]
     return flags
 
@@ -97,17 +107,27 @@ def list_sessions(filter_str=""):
 def format_time(mtime):
     dt   = datetime.fromtimestamp(mtime)
     diff = datetime.now() - dt
-    if diff.days == 0:   return dt.strftime("dziś %H:%M")
-    if diff.days == 1:   return dt.strftime("wczoraj %H:%M")
-    if diff.days < 7:    return dt.strftime("%A %H:%M")
+    if diff.days == 0:  return dt.strftime("dziś %H:%M")
+    if diff.days == 1:  return dt.strftime("wczoraj %H:%M")
+    if diff.days < 7:   return dt.strftime("%A %H:%M")
     return dt.strftime("%d.%m.%Y")
+
+def ask_fork():
+    """Pyta czy wznowić sesję czy zrobić fork (nową sesję od tego punktu)."""
+    print("\n[c] kontynuuj sesję  [f] fork (nowa sesja od tego miejsca): ", end="", flush=True)
+    try:
+        choice = input().strip().lower()
+        return choice == "f"
+    except (EOFError, KeyboardInterrupt):
+        return False
 
 def resume_session(session, config):
     print(f"\n→ Projekt: {session['actual_path']}")
-    print(f"→ Temat:   {session['first_msg'][:60]}\n")
+    print(f"→ Temat:   {session['first_msg'][:60]}")
+    fork = ask_fork()
     if os.path.isdir(session["actual_path"]):
         os.chdir(session["actual_path"])
-    flags = build_claude_flags(config, resume_id=session["session_id"])
+    flags = build_claude_flags(config, resume_id=session["session_id"], fork=fork)
     os.execvp(flags[0], flags)
 
 def create_new_project(config):
