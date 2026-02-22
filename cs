@@ -19,6 +19,7 @@ def load_config():
         "MODEL":        "sonnet",
         "EFFORT":       "high",
         "PROJECTS_DIR": "~/Projects",
+        "TMUX":         "true",
     }
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE) as f:
