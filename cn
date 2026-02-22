@@ -8,6 +8,7 @@ CONFIG_FILE="$HOME/.config/ccsessions"
 DANGEROUSLY_SKIP_PERMISSIONS="true"
 BROWSER="chrome"
 PROJECTS_DIR="$HOME/Projects"
+TMUX_ENABLED="true"
 
 if [ -f "$CONFIG_FILE" ]; then
     while IFS='=' read -r key val; do
@@ -18,6 +19,7 @@ if [ -f "$CONFIG_FILE" ]; then
             DANGEROUSLY_SKIP_PERMISSIONS) DANGEROUSLY_SKIP_PERMISSIONS="$val" ;;
             BROWSER) BROWSER="$val" ;;
             PROJECTS_DIR) PROJECTS_DIR="${val/#\~/$HOME}" ;;
+            TMUX) TMUX_ENABLED="$val" ;;
         esac
     done < "$CONFIG_FILE"
 fi
@@ -41,5 +43,17 @@ else
     echo "✓ Utworzono: $PROJECT_PATH"
 fi
 
-cd "$PROJECT_PATH"
-exec claude $CLAUDE_FLAGS
+SESSION_NAME="claude-$(basename "$PROJECT_PATH")"
+
+if [ "$TMUX_ENABLED" = "true" ]; then
+    if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+        echo "→ Podpinam się do tmux: $SESSION_NAME"
+        exec tmux attach -t "$SESSION_NAME"
+    else
+        echo "→ Nowa sesja tmux: $SESSION_NAME"
+        exec tmux new-session -s "$SESSION_NAME" -c "$PROJECT_PATH" claude $CLAUDE_FLAGS
+    fi
+else
+    cd "$PROJECT_PATH"
+    exec claude $CLAUDE_FLAGS
+fi
