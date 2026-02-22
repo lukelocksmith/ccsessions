@@ -155,10 +155,19 @@ def resume_session(session, config):
     print(f"\n→ Projekt: {session['actual_path']}")
     print(f"→ Temat:   {session['first_msg'][:60]}")
     fork = ask_fork()
-    if os.path.isdir(session["actual_path"]):
-        os.chdir(session["actual_path"])
+    project_path = session["actual_path"]
+    if os.path.isdir(project_path):
+        os.chdir(project_path)
     flags = build_claude_flags(config, resume_id=session["session_id"], fork=fork)
-    os.execvp(flags[0], flags)
+
+    if config.get("TMUX", "true").lower() == "true":
+        session_name = get_tmux_session_name(project_path)
+        if fork:
+            import time
+            session_name = f"{session_name}-fork-{int(time.time())}"
+        attach_or_create_tmux(session_name, project_path, flags)
+    else:
+        os.execvp(flags[0], flags)
 
 def create_new_project(config):
     print("\nNazwa nowego projektu: ", end="", flush=True)
