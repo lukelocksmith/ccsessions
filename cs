@@ -113,6 +113,24 @@ def format_time(mtime):
     if diff.days < 7:   return dt.strftime("%A %H:%M")
     return dt.strftime("%d.%m.%Y")
 
+def get_active_tmux_sessions():
+    """Zwraca set nazw aktywnych sesji tmux."""
+    try:
+        result = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return set(result.stdout.strip().split("\n"))
+        return set()
+    except FileNotFoundError:
+        return set()
+
+def get_tmux_session_name(project_path):
+    """Zwraca nazwę sesji tmux dla danego projektu."""
+    name = os.path.basename(project_path.rstrip("/")) or "claude"
+    return f"claude-{name}"
+
 def ask_fork():
     """Pyta czy wznowić sesję czy zrobić fork (nową sesję od tego punktu)."""
     print("\n[c] kontynuuj sesję  [f] fork (nowa sesja od tego miejsca): ", end="", flush=True)
