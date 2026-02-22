@@ -23,6 +23,10 @@ cp "$(dirname "$0")/cs" ~/.local/bin/cs
 chmod +x ~/.local/bin/cs
 echo "✓ Skrypt skopiowany do ~/.local/bin/cs"
 
+cp "$(dirname "$0")/cn" ~/.local/bin/cn
+chmod +x ~/.local/bin/cn
+echo "✓ Skrypt cn skopiowany do ~/.local/bin/cn"
+
 # Kopiuj config jeśli nie istnieje
 CONFIG_DIR="$HOME/.config"
 mkdir -p "$CONFIG_DIR"

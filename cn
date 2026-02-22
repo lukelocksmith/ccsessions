@@ -7,6 +7,8 @@ CONFIG_FILE="$HOME/.config/ccsessions"
 # Wczytaj config
 DANGEROUSLY_SKIP_PERMISSIONS="true"
 BROWSER="chrome"
+MODEL="sonnet"
+EFFORT="high"
 PROJECTS_DIR="$HOME/Projects"
 TMUX_ENABLED="true"
 
@@ -20,6 +22,8 @@ if [ -f "$CONFIG_FILE" ]; then
             BROWSER) BROWSER="$val" ;;
             PROJECTS_DIR) PROJECTS_DIR="${val/#\~/$HOME}" ;;
             TMUX) TMUX_ENABLED="$val" ;;
+            MODEL) MODEL="$val" ;;
+            EFFORT) EFFORT="$val" ;;
         esac
     done < "$CONFIG_FILE"
 fi
@@ -28,6 +32,8 @@ fi
 CLAUDE_FLAGS=""
 [ "$DANGEROUSLY_SKIP_PERMISSIONS" = "true" ] && CLAUDE_FLAGS="--dangerously-skip-permissions"
 [ "$BROWSER" != "none" ] && [ -n "$BROWSER" ] && CLAUDE_FLAGS="$CLAUDE_FLAGS --$BROWSER"
+[ "$MODEL" != "none" ] && [ -n "$MODEL" ] && CLAUDE_FLAGS="$CLAUDE_FLAGS --model $MODEL"
+[ "$EFFORT" != "none" ] && [ -n "$EFFORT" ] && CLAUDE_FLAGS="$CLAUDE_FLAGS --effort $EFFORT"
 
 if [ -z "$1" ]; then
     echo "Użycie: cn nazwa-projektu"
