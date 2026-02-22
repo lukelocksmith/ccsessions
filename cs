@@ -183,7 +183,12 @@ def create_new_project(config):
         print(f"✓ Utworzono: {project_path}")
     os.chdir(project_path)
     flags = build_claude_flags(config)
-    os.execvp(flags[0], flags)
+
+    if config.get("TMUX", "true").lower() == "true":
+        session_name = get_tmux_session_name(project_path)
+        attach_or_create_tmux(session_name, project_path, flags)
+    else:
+        os.execvp(flags[0], flags)
 
 def main():
     config     = load_config()
