@@ -195,14 +195,18 @@ def main():
     filter_str = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else ""
     sessions   = list_sessions(filter_str)
     home       = os.path.expanduser("~")
+    use_tmux   = config.get("TMUX", "true").lower() == "true"
+    active_tmux = get_active_tmux_sessions() if use_tmux else set()
 
     lines = []
     if not filter_str:
         lines.append(NEW_PROJECT_MARKER)
     for i, s in enumerate(sessions):
-        project = s["actual_path"].replace(home, "~")
-        msg     = s["first_msg"].replace("\n", " ")
-        lines.append(f"{i:04d}|{format_time(s['mtime']):<16} {project:<40} {msg}")
+        project      = s["actual_path"].replace(home, "~")
+        msg          = s["first_msg"].replace("\n", " ")
+        session_name = get_tmux_session_name(s["actual_path"])
+        live         = "●" if session_name in active_tmux else " "
+        lines.append(f"{i:04d}|{live} {format_time(s['mtime']):<16} {project:<40} {msg}")
 
     if not lines:
         print("Brak sesji" + (f" pasujących do '{filter_str}'" if filter_str else ""))
