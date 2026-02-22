@@ -131,6 +131,17 @@ def get_tmux_session_name(project_path):
     name = os.path.basename(project_path.rstrip("/")) or "claude"
     return f"claude-{name}"
 
+def attach_or_create_tmux(session_name, project_path, claude_flags):
+    """Podpina się do istniejącej sesji tmux lub tworzy nową z claude."""
+    active = get_active_tmux_sessions()
+    if session_name in active:
+        print(f"\n→ Podpinam się do tmux: {session_name}")
+        os.execvp("tmux", ["tmux", "attach", "-t", session_name])
+    else:
+        print(f"\n→ Nowa sesja tmux: {session_name}")
+        tmux_cmd = ["tmux", "new-session", "-s", session_name, "-c", project_path] + claude_flags
+        os.execvp("tmux", tmux_cmd)
+
 def ask_fork():
     """Pyta czy wznowić sesję czy zrobić fork (nową sesję od tego punktu)."""
     print("\n[c] kontynuuj sesję  [f] fork (nowa sesja od tego miejsca): ", end="", flush=True)
