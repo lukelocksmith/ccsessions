@@ -19,6 +19,7 @@ def load_config():
         "MODEL":        "sonnet",
         "EFFORT":       "high",
         "PROJECTS_DIR": "~/Projects",
+        "TMUX":         "true",
     }
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE) as f:
@@ -112,6 +113,35 @@ def format_time(mtime):
     if diff.days < 7:   return dt.strftime("%A %H:%M")
     return dt.strftime("%d.%m.%Y")
 
+def get_active_tmux_sessions():
+    """Zwraca set nazw aktywnych sesji tmux."""
+    try:
+        result = subprocess.run(
+            ["tmux", "list-sessions", "-F", "#{session_name}"],
+            capture_output=True, text=True
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return set(result.stdout.strip().split("\n"))
+        return set()
+    except FileNotFoundError:
+        return set()
+
+def get_tmux_session_name(project_path):
+    """Zwraca nazwę sesji tmux dla danego projektu."""
+    name = os.path.basename(project_path.rstrip("/")) or "claude"
+    return f"claude-{name}"
+
+def attach_or_create_tmux(session_name, project_path, claude_flags):
+    """Podpina się do istniejącej sesji tmux lub tworzy nową z claude."""
+    active = get_active_tmux_sessions()
+    if session_name in active:
+        print(f"\n→ Podpinam się do tmux: {session_name}")
+        os.execvp("tmux", ["tmux", "attach", "-t", session_name])
+    else:
+        print(f"\n→ Nowa sesja tmux: {session_name}")
+        tmux_cmd = ["tmux", "new-session", "-s", session_name, "-c", project_path] + claude_flags
+        os.execvp("tmux", tmux_cmd)
+
 def ask_fork():
     """Pyta czy wznowić sesję czy zrobić fork (nową sesję od tego punktu)."""
     print("\n[c] kontynuuj sesję  [f] fork (nowa sesja od tego miejsca): ", end="", flush=True)
@@ -125,10 +155,19 @@ def resume_session(session, config):
     print(f"\n→ Projekt: {session['actual_path']}")
     print(f"→ Temat:   {session['first_msg'][:60]}")
     fork = ask_fork()
-    if os.path.isdir(session["actual_path"]):
-        os.chdir(session["actual_path"])
+    project_path = session["actual_path"]
+    if os.path.isdir(project_path):
+        os.chdir(project_path)
     flags = build_claude_flags(config, resume_id=session["session_id"], fork=fork)
-    os.execvp(flags[0], flags)
+
+    if config.get("TMUX", "true").lower() == "true":
+        session_name = get_tmux_session_name(project_path)
+        if fork:
+            import time
+            session_name = f"{session_name}-fork-{int(time.time())}"
+        attach_or_create_tmux(session_name, project_path, flags)
+    else:
+        os.execvp(flags[0], flags)
 
 def create_new_project(config):
     print("\nNazwa nowego projektu: ", end="", flush=True)
@@ -144,21 +183,30 @@ def create_new_project(config):
         print(f"✓ Utworzono: {project_path}")
     os.chdir(project_path)
     flags = build_claude_flags(config)
-    os.execvp(flags[0], flags)
+
+    if config.get("TMUX", "true").lower() == "true":
+        session_name = get_tmux_session_name(project_path)
+        attach_or_create_tmux(session_name, project_path, flags)
+    else:
+        os.execvp(flags[0], flags)
 
 def main():
     config     = load_config()
     filter_str = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else ""
     sessions   = list_sessions(filter_str)
     home       = os.path.expanduser("~")
+    use_tmux   = config.get("TMUX", "true").lower() == "true"
+    active_tmux = get_active_tmux_sessions() if use_tmux else set()
 
     lines = []
     if not filter_str:
         lines.append(NEW_PROJECT_MARKER)
     for i, s in enumerate(sessions):
-        project = s["actual_path"].replace(home, "~")
-        msg     = s["first_msg"].replace("\n", " ")
-        lines.append(f"{i:04d}|{format_time(s['mtime']):<16} {project:<40} {msg}")
+        project      = s["actual_path"].replace(home, "~")
+        msg          = s["first_msg"].replace("\n", " ")
+        session_name = get_tmux_session_name(s["actual_path"])
+        live         = "●" if session_name in active_tmux else " "
+        lines.append(f"{i:04d}|{live} {format_time(s['mtime']):<16} {project:<40} {msg}")
 
     if not lines:
         print("Brak sesji" + (f" pasujących do '{filter_str}'" if filter_str else ""))
