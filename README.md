@@ -13,6 +13,7 @@ folderze z wznowioną rozmową.
 - Python 3 (domyślnie na macOS)
 - [fzf](https://github.com/junegunn/fzf) — do interaktywnego wyboru sesji
 - Claude Code CLI (`claude`)
+- [tmux](https://github.com/tmux/tmux) — do trwałych sesji (opcjonalnie, wyłącz przez `TMUX=false`)
 
 ## Instalacja
 
@@ -51,6 +52,18 @@ cs                    # wszystkie sesje ze wszystkich projektów
 cs writer             # filtruj po nazwie folderu/projektu
 cs "jaki ai"          # filtruj po treści pierwszej wiadomości
 ```
+
+## Sesje tmux
+
+Domyślnie każda sesja Claude jest uruchamiana w tmuxie (`TMUX=true` w configu).
+
+**Odłącz się od sesji:** `Ctrl+B D`
+**Lista sesji tmux:** `tmux ls`
+**Podepnij się ręcznie:** `tmux attach -t claude-nazwa-projektu`
+
+W `cs` sesje aktualnie otwarte w tmuxie mają prefix `●`.
+
+Wyłącz tmux: zmień `TMUX=false` w `~/.config/ccsessions`
 
 ### Jak to działa?
 

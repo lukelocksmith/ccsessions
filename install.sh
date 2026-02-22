@@ -23,6 +23,16 @@ cp "$(dirname "$0")/cs" ~/.local/bin/cs
 chmod +x ~/.local/bin/cs
 echo "✓ Skrypt skopiowany do ~/.local/bin/cs"
 
+# Kopiuj config jeśli nie istnieje
+CONFIG_DIR="$HOME/.config"
+mkdir -p "$CONFIG_DIR"
+if [ ! -f "$CONFIG_DIR/ccsessions" ]; then
+    cp "$(dirname "$0")/ccsessions.conf" "$CONFIG_DIR/ccsessions"
+    echo "✓ Config skopiowany do $CONFIG_DIR/ccsessions"
+else
+    echo "✓ Config już istnieje: $CONFIG_DIR/ccsessions (nie nadpisano)"
+fi
+
 # Dodaj do PATH jeśli nie ma
 SHELL_RC="$HOME/.zshrc"
 if [ -n "$BASH_VERSION" ]; then
