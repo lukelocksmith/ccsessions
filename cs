@@ -10,7 +10,8 @@ from datetime import datetime
 
 SESSIONS_DIR       = os.path.expanduser("~/.claude/projects")
 CONFIG_FILE        = os.path.expanduser("~/.config/ccsessions")
-NEW_PROJECT_MARKER = "NEW|+ Nowy projekt"
+NEW_PROJECT_MARKER = "NEW\x01+ Nowy projekt\x01"
+SEP = "\x01"
 
 def load_config():
     defaults = {
@@ -54,27 +55,34 @@ def decode_path(project_dir):
         return "/" + project_dir[1:].replace("-", "/")
     return project_dir
 
-def get_first_user_message(jsonl_file):
+def get_user_messages(jsonl_file, max_messages=30):
+    messages = []
     try:
         with open(jsonl_file, "r") as f:
             for line in f:
+                if len(messages) >= max_messages:
+                    break
                 try:
                     entry = json.loads(line)
                     if entry.get("type") == "user" and entry.get("message", {}).get("role") == "user":
                         content = entry["message"].get("content", "")
+                        txt = ""
                         if isinstance(content, list):
                             for c in content:
                                 if isinstance(c, dict) and c.get("type") == "text":
-                                    txt = c["text"].strip()
-                                    if txt and not txt.startswith("<"):
-                                        return txt[:80]
+                                    t = c["text"].strip()
+                                    if t and not t.startswith("<"):
+                                        txt = t
+                                        break
                         elif isinstance(content, str) and content.strip() and not content.startswith("<"):
-                            return content.strip()[:80]
+                            txt = content.strip()
+                        if txt:
+                            messages.append(txt[:300])
                 except Exception:
                     pass
-        return ""
     except Exception:
-        return ""
+        pass
+    return messages
 
 def list_sessions(filter_str=""):
     sessions = []
@@ -87,23 +95,32 @@ def list_sessions(filter_str=""):
             try:
                 if os.path.getsize(jsonl_file) < 100:
                     continue
-                first_msg = get_first_user_message(jsonl_file)
-                if not first_msg:
+                msgs = get_user_messages(jsonl_file)
+                if not msgs:
                     continue
                 sessions.append({
                     "actual_path": actual_path,
                     "session_id":  os.path.basename(jsonl_file).replace(".jsonl", ""),
                     "mtime":       os.path.getmtime(jsonl_file),
-                    "first_msg":   first_msg,
+                    "first_msg":   msgs[0],
+                    "all_msgs":    msgs,
                 })
             except:
                 pass
     sessions.sort(key=lambda x: x["mtime"], reverse=True)
     if filter_str:
         fl = filter_str.lower()
-        sessions = [s for s in sessions
-                    if fl in s["actual_path"].lower() or fl in s["first_msg"].lower()]
+        path_hits    = [s for s in sessions if fl in s["actual_path"].lower()]
+        content_hits = [s for s in sessions if fl not in s["actual_path"].lower()
+                        and any(fl in m.lower() for m in s["all_msgs"])]
+        sessions = path_hits + content_hits
     return sessions
+
+def trunc(s, n, right=False):
+    s = s.replace("\n", " ").strip()
+    if len(s) <= n:
+        return s.ljust(n)
+    return ("…" + s[-(n-1):]) if right else (s[:n-1] + "…")
 
 def format_time(mtime):
     dt   = datetime.fromtimestamp(mtime)
@@ -206,7 +223,9 @@ def main():
         msg          = s["first_msg"].replace("\n", " ")
         session_name = get_tmux_session_name(s["actual_path"])
         live         = "●" if session_name in active_tmux else " "
-        lines.append(f"{i:04d}|{live} {format_time(s['mtime']):<16} {project:<40} {msg}")
+        search_blob  = " | ".join(m.replace("\x01", " ").replace("\n", " ") for m in s["all_msgs"])
+        display      = f"{live} {trunc(format_time(s['mtime']), 14)} {trunc(project, 30, right=True)} {trunc(msg, 55)}"
+        lines.append(f"{i:04d}{SEP}{display}{SEP}{project}{SEP}{search_blob}")
 
     if not lines:
         print("Brak sesji" + (f" pasujących do '{filter_str}'" if filter_str else ""))
@@ -221,7 +240,8 @@ def main():
             [fzf_bin, "--height=60%", "--reverse", "--border",
              "--prompt=Claude> ",
              "--header=ENTER: otwórz  ESC: anuluj",
-             "--delimiter=|", "--nth=2", "--with-nth=2"],
+             "--delimiter=\x01", "--with-nth=2",
+             "--no-sort", "--exact"],
             input="\n".join(lines),
             capture_output=True, text=True
         )
@@ -241,7 +261,7 @@ def main():
         return
 
     try:
-        idx = int(selected.split("|")[0])
+        idx = int(selected.split(SEP)[0])
         resume_session(sessions[idx], config)
     except (ValueError, IndexError):
         sys.exit(0)
