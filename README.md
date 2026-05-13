@@ -1,97 +1,103 @@
-# cs — Claude Sessions Manager
+# ccsessions — Claude Code Session Manager
 
-Skrypt do zarządzania sesjami Claude Code ze wszystkich projektów w jednym miejscu.
+Browse and resume Claude Code sessions from all your projects in one place.
 
-## Co robi?
+## What it does
 
-`cs` skanuje wszystkie sesje Claude Code na Twoim komputerze (z każdego folderu/projektu)
-i pokazuje je w interaktywnej liście. Wybierasz sesję → otwiera się Claude w odpowiednim
-folderze z wznowioną rozmową.
+`cs` scans all Claude Code sessions on your machine (across every project folder) and shows them in an interactive list. Pick a session → Claude reopens in the right directory with the conversation resumed.
 
-## Wymagania
+**Search works across the full conversation** — not just the first message. Type `test` and it finds every session where that word appeared at any point, ordered by date.
 
-- Python 3 (domyślnie na macOS)
-- [fzf](https://github.com/junegunn/fzf) — do interaktywnego wyboru sesji
-- Claude Code CLI (`claude`)
-- [tmux](https://github.com/tmux/tmux) — do trwałych sesji (opcjonalnie, wyłącz przez `TMUX=false`)
+```
+Claude> test
+  dziś 22:22    …/important/testsabsplit   znajdz mi wszystkie informacje na...
+  dziś 22:18    ~/Projects/api             napisz testy jednostkowe dla endp...
+  28.04.2026    ~/Projects/wdf             gdzies robilismy testy przez grafa...
+```
 
-## Instalacja
+## Requirements
 
-### 1. Zainstaluj fzf
+- Python 3 (built-in on macOS)
+- [fzf](https://github.com/junegunn/fzf) — interactive picker
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) (`claude`)
+- [tmux](https://github.com/tmux/tmux) — persistent sessions (optional, disable with `TMUX=false`)
+
+## Install
 
 ```bash
 brew install fzf
-```
-
-### 2. Skopiuj skrypt
-
-```bash
-mkdir -p ~/.local/bin
-cp cs ~/.local/bin/cs
-chmod +x ~/.local/bin/cs
-```
-
-### 3. Dodaj do PATH
-
-Dodaj do `~/.zshrc` (lub `~/.bashrc`):
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-Przeładuj terminal:
-
-```bash
+git clone https://github.com/lukelocksmith/ccsessions
+cd ccsessions
+./install.sh
 source ~/.zshrc
 ```
 
-## Użycie
+The installer copies `cs` and `cn` to `~/.local/bin` and the config to `~/.config/ccsessions`.
+
+## Usage
 
 ```bash
-cs                    # wszystkie sesje ze wszystkich projektów
-cs writer             # filtruj po nazwie folderu/projektu
-cs "jaki ai"          # filtruj po treści pierwszej wiadomości
+cs              # all sessions from all projects
+cs writer       # filter by project folder name
+cs "migration"  # filter by anything said in the conversation
 ```
 
-## Sesje tmux
+### Inside the picker
 
-Domyślnie każda sesja Claude jest uruchamiana w tmuxie (`TMUX=true` w configu).
+| Key | Action |
+|-----|--------|
+| `↑ ↓` | Navigate |
+| `Enter` | Open session |
+| `ESC` | Quit |
 
-**Odłącz się od sesji:** `Ctrl+B D`
-**Lista sesji tmux:** `tmux ls`
-**Podepnij się ręcznie:** `tmux attach -t claude-nazwa-projektu`
+After selecting a session:
+- **`c`** — continue (resume the session)
+- **`f`** — fork (start a new session branching from this point)
 
-W `cs` sesje aktualnie otwarte w tmuxie mają prefix `●`.
+### Create a new project
 
-Wyłącz tmux: zmień `TMUX=false` w `~/.config/ccsessions`
-
-### Jak to działa?
-
-1. Uruchamiasz `cs` z dowolnego miejsca w terminalu
-2. Widzisz listę sesji: data, folder projektu, pierwsza wiadomość
-3. Strzałki góra/dół do nawigacji, `Enter` żeby wybrać
-4. Claude otwiera się w katalogu projektu z wznowioną sesją (`claude --resume <id>`)
-5. `ESC` — wyjście bez wyboru
-
-### Przykładowy widok
-
-```
-Claude session>
-dziś 22:31     ~/Projects/writer          jaki ai jest najlepszy zeby robic...
-dziś 16:40     ~/Projects/linkedin        chce z terminala wrzucac posty na...
-wczoraj 15:46  ~/Projects/important       dobra chcemy postawic na orbstack...
-20.02.2026     ~/Projects/kongresftb      znajdz maile od mariusza debskiego...
+```bash
+cn my-project   # creates ~/Projects/my-project and opens Claude
 ```
 
-## Jak działa pod spodem?
+Or press `Enter` on **+ New project** at the top of the `cs` list.
 
-Sesje Claude Code są zapisane jako pliki `.jsonl` w:
+## tmux
+
+Sessions open in tmux by default. Each project gets a persistent tmux session named `claude-<project>`.
+
+| Command | Action |
+|---------|--------|
+| `Ctrl+B D` | Detach (keep session running) |
+| `tmux ls` | List all tmux sessions |
+| `tmux attach -t claude-myproject` | Reattach manually |
+
+Sessions currently open in tmux show a `●` prefix in the list.
+
+Disable tmux: set `TMUX=false` in `~/.config/ccsessions`.
+
+## Configuration
+
+`~/.config/ccsessions`:
+
+```ini
+DANGEROUSLY_SKIP_PERMISSIONS=true   # skip Claude permission prompts
+BROWSER=chrome                       # browser extension (chrome/firefox/none)
+MODEL=sonnet                         # claude model
+EFFORT=high                          # effort level (low/medium/high)
+PROJECTS_DIR=~/Projects              # where cn creates new projects
+TMUX=true                            # use tmux for sessions
 ```
-~/.claude/projects/{zakodowana-ścieżka}/{session-id}.jsonl
+
+## How it works
+
+Claude Code stores sessions as `.jsonl` files:
+```
+~/.claude/projects/{encoded-path}/{session-id}.jsonl
 ```
 
-Skrypt dekoduje ścieżki, czyta pierwsze wiadomości i sortuje po czasie modyfikacji.
+`cs` decodes the paths, reads up to 30 user messages per session, and presents them sorted newest-first. Search is exact substring matching across all indexed messages — results are ordered by date, with path matches ranked above content-only matches.
 
-## Autor
+## Author
 
-Łukasz Ślusarski / important.is
+Łukasz Ślusarski / [important.is](https://important.is)
