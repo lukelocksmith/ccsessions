@@ -10,7 +10,7 @@ from datetime import datetime
 
 SESSIONS_DIR       = os.path.expanduser("~/.claude/projects")
 CONFIG_FILE        = os.path.expanduser("~/.config/ccsessions")
-NEW_PROJECT_MARKER = "NEW\x01+ Nowy projekt\x01"
+NEW_PROJECT_MARKER = "NEW\x01+ Nowy projekt\x01\x01"
 SEP = "\x01"
 
 def load_config():
@@ -23,7 +23,7 @@ def load_config():
         "TMUX":         "true",
     }
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE) as f:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
@@ -58,7 +58,7 @@ def decode_path(project_dir):
 def get_user_messages(jsonl_file, max_messages=30):
     messages = []
     try:
-        with open(jsonl_file, "r") as f:
+        with open(jsonl_file, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 if len(messages) >= max_messages:
                     break
@@ -85,6 +85,9 @@ def get_user_messages(jsonl_file, max_messages=30):
     return messages
 
 def list_sessions(filter_str=""):
+    if not os.path.isdir(SESSIONS_DIR):
+        print(f"Brak katalogu sesji: {SESSIONS_DIR}")
+        sys.exit(0)
     sessions = []
     for project_dir in os.listdir(SESSIONS_DIR):
         project_path = os.path.join(SESSIONS_DIR, project_dir)
@@ -105,7 +108,7 @@ def list_sessions(filter_str=""):
                     "first_msg":   msgs[0],
                     "all_msgs":    msgs,
                 })
-            except:
+            except Exception:
                 pass
     sessions.sort(key=lambda x: x["mtime"], reverse=True)
     if filter_str:
