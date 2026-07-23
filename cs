@@ -5,13 +5,25 @@ Wznawia sesje Claude lub tworzy nowy projekt.
 Użycie: cs [opcjonalny filtr]
 """
 
-import json, os, sys, subprocess, glob
+import json, os, re, sys, subprocess, glob
 from datetime import datetime
 
 SESSIONS_DIR       = os.path.expanduser("~/.claude/projects")
 CONFIG_FILE        = os.path.expanduser("~/.config/ccsessions")
 NEW_PROJECT_MARKER = "NEW\x01+ Nowy projekt\x01\x01"
 SEP = "\x01"
+
+# Claude Code koduje ścieżkę projektu zamieniając KAŻDY "-" na "/", więc dla
+# katalogów tymczasowych (np. "-private-var-folders-bh-xxx-T-tmp-ABC123")
+# zdekodowana ścieżka jest bezużyteczna do porównań — myślniki będące częścią
+# nazwy folderu (np. "yc22cvs54hs4_szxjx5q63mm0000gn" vs "-tmp-ABC123") giną
+# w dekodowaniu. Dlatego dopasowujemy wzorzec na SUROWEJ nazwie katalogu.
+TMP_PROJECT_DIR_RE = re.compile(
+    r"^-(private-)?tmp(-|$)|-var-folders-.*-T-"
+)
+
+def is_tmp_project_dir(raw_dir_name):
+    return bool(TMP_PROJECT_DIR_RE.search(raw_dir_name))
 
 def load_config():
     defaults = {
@@ -55,34 +67,46 @@ def decode_path(project_dir):
         return "/" + project_dir[1:].replace("-", "/")
     return project_dir
 
-def get_user_messages(jsonl_file, max_messages=30):
+def get_session_info(jsonl_file, max_messages=30):
+    """Zwraca (lista wiadomości usera, prawdziwy cwd sesji).
+
+    decode_path() zamienia KAŻDY "-" na "/", więc dla ścieżek zawierających
+    myślnik jako część nazwy folderu (np. "new-web") daje zły wynik
+    ("new/web"). Sesje zapisują faktyczny katalog roboczy w polu "cwd" na
+    (prawie) każdym wpisie — czytamy go stąd zamiast zgadywać przez dekodowanie.
+    """
     messages = []
+    cwd = None
     try:
         with open(jsonl_file, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
-                if len(messages) >= max_messages:
+                if len(messages) >= max_messages and cwd is not None:
                     break
                 try:
                     entry = json.loads(line)
-                    if entry.get("type") == "user" and entry.get("message", {}).get("role") == "user":
-                        content = entry["message"].get("content", "")
-                        txt = ""
-                        if isinstance(content, list):
-                            for c in content:
-                                if isinstance(c, dict) and c.get("type") == "text":
-                                    t = c["text"].strip()
-                                    if t and not t.startswith("<"):
-                                        txt = t
-                                        break
-                        elif isinstance(content, str) and content.strip() and not content.startswith("<"):
-                            txt = content.strip()
-                        if txt:
-                            messages.append(txt[:300])
                 except Exception:
-                    pass
+                    continue
+                if cwd is None:
+                    c = entry.get("cwd")
+                    if c:
+                        cwd = c
+                if entry.get("type") == "user" and entry.get("message", {}).get("role") == "user":
+                    content = entry["message"].get("content", "")
+                    txt = ""
+                    if isinstance(content, list):
+                        for c in content:
+                            if isinstance(c, dict) and c.get("type") == "text":
+                                t = c["text"].strip()
+                                if t and not t.startswith("<"):
+                                    txt = t
+                                    break
+                    elif isinstance(content, str) and content.strip() and not content.startswith("<"):
+                        txt = content.strip()
+                    if txt:
+                        messages.append(txt[:300])
     except Exception:
         pass
-    return messages
+    return messages, cwd
 
 def list_sessions(filter_str=""):
     if not os.path.isdir(SESSIONS_DIR):
@@ -93,16 +117,18 @@ def list_sessions(filter_str=""):
         project_path = os.path.join(SESSIONS_DIR, project_dir)
         if not os.path.isdir(project_path):
             continue
-        actual_path = decode_path(project_dir)
+        if is_tmp_project_dir(project_dir):
+            continue
+        fallback_path = decode_path(project_dir)
         for jsonl_file in glob.glob(os.path.join(project_path, "*.jsonl")):
             try:
                 if os.path.getsize(jsonl_file) < 100:
                     continue
-                msgs = get_user_messages(jsonl_file)
+                msgs, cwd = get_session_info(jsonl_file)
                 if not msgs:
                     continue
                 sessions.append({
-                    "actual_path": actual_path,
+                    "actual_path": cwd or fallback_path,
                     "session_id":  os.path.basename(jsonl_file).replace(".jsonl", ""),
                     "mtime":       os.path.getmtime(jsonl_file),
                     "first_msg":   msgs[0],
@@ -146,9 +172,22 @@ def get_active_tmux_sessions():
     except FileNotFoundError:
         return set()
 
-def get_tmux_session_name(project_path):
-    """Zwraca nazwę sesji tmux dla danego projektu."""
-    name = os.path.basename(project_path.rstrip("/")) or "claude"
+def get_tmux_session_name(project_path, projects_dir=None):
+    """Zwraca nazwę sesji tmux dla danego projektu.
+
+    Gdy projekt leży w PROJECTS_DIR, nazwa uwzględnia ścieżkę względem
+    PROJECTS_DIR (nie sam basename) — dwa projekty o tej samej nazwie
+    folderu w różnych miejscach (np. "zadaniex" pod dwoma różnymi klientami)
+    dostają różne sesje tmux zamiast się nadpisywać/kolidować.
+    """
+    real = os.path.realpath(project_path.rstrip("/"))
+    if projects_dir:
+        projects_real = os.path.realpath(os.path.expanduser(projects_dir)).rstrip("/")
+        if real == projects_real or real.startswith(projects_real + "/"):
+            rel = real[len(projects_real):].lstrip("/")
+            if rel:
+                return f"claude-{rel.replace('/', '-')}"
+    name = os.path.basename(real) or "claude"
     return f"claude-{name}"
 
 def attach_or_create_tmux(session_name, project_path, claude_flags):
@@ -181,7 +220,7 @@ def resume_session(session, config):
     flags = build_claude_flags(config, resume_id=session["session_id"], fork=fork)
 
     if config.get("TMUX", "true").lower() == "true":
-        session_name = get_tmux_session_name(project_path)
+        session_name = get_tmux_session_name(project_path, config.get("PROJECTS_DIR", "~/Projects"))
         if fork:
             import time
             session_name = f"{session_name}-fork-{int(time.time())}"
@@ -195,7 +234,17 @@ def create_new_project(config):
     if not name:
         sys.exit(0)
     projects_dir = os.path.expanduser(config.get("PROJECTS_DIR", "~/Projects"))
-    project_path = os.path.join(projects_dir, name)
+    # Jeśli `cs` odpalono z wnętrza PROJECTS_DIR (np. z projektu klienta),
+    # nowy projekt powstaje jako podfolder BIEŻĄCEGO katalogu zamiast zawsze
+    # pod PROJECTS_DIR — np. w ~/Projects/wdf nowy projekt "zadaniex" trafia
+    # do ~/Projects/wdf/zadaniex.
+    cwd = os.path.realpath(os.getcwd())
+    projects_real = os.path.realpath(projects_dir).rstrip("/")
+    if cwd == projects_real or cwd.startswith(projects_real + "/"):
+        base_dir = cwd
+    else:
+        base_dir = projects_dir
+    project_path = os.path.join(base_dir, name)
     if os.path.isdir(project_path):
         print(f"Folder już istnieje: {project_path} — wchodzę...")
     else:
@@ -205,7 +254,7 @@ def create_new_project(config):
     flags = build_claude_flags(config)
 
     if config.get("TMUX", "true").lower() == "true":
-        session_name = get_tmux_session_name(project_path)
+        session_name = get_tmux_session_name(project_path, projects_dir)
         attach_or_create_tmux(session_name, project_path, flags)
     else:
         os.execvp(flags[0], flags)
@@ -224,7 +273,7 @@ def main():
     for i, s in enumerate(sessions):
         project      = s["actual_path"].replace(home, "~")
         msg          = s["first_msg"].replace("\n", " ")
-        session_name = get_tmux_session_name(s["actual_path"])
+        session_name = get_tmux_session_name(s["actual_path"], config.get("PROJECTS_DIR", "~/Projects"))
         live         = "●" if session_name in active_tmux else " "
         search_blob  = " | ".join(m.replace("\x01", " ").replace("\n", " ") for m in s["all_msgs"])
         display      = f"{live} {trunc(format_time(s['mtime']), 14)} {trunc(project, 30, right=True)} {trunc(msg, 55)}"

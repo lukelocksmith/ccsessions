@@ -40,7 +40,20 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
-PROJECT_PATH="$PROJECTS_DIR/$1"
+# Jeśli już jesteśmy w PROJECTS_DIR (lub jego podfolderze, np. w projekcie
+# klienta), nowy projekt powstaje jako podfolder BIEŻĄCEGO katalogu zamiast
+# zawsze pod PROJECTS_DIR — np. w ~/Projects/wdf, `cn zadaniex` tworzy
+# ~/Projects/wdf/zadaniex. Poza drzewem PROJECTS_DIR zachowanie jest jak dawniej.
+CURRENT_DIR_REAL="$(pwd -P)"
+PROJECTS_DIR_REAL="$(cd "$PROJECTS_DIR" 2>/dev/null && pwd -P)"
+
+if [ -n "$PROJECTS_DIR_REAL" ] && { [ "$CURRENT_DIR_REAL" = "$PROJECTS_DIR_REAL" ] || [[ "$CURRENT_DIR_REAL" == "$PROJECTS_DIR_REAL"/* ]]; }; then
+    BASE_DIR="$CURRENT_DIR_REAL"
+else
+    BASE_DIR="$PROJECTS_DIR"
+fi
+
+PROJECT_PATH="$BASE_DIR/$1"
 
 if [ -d "$PROJECT_PATH" ]; then
     echo "Folder już istnieje: $PROJECT_PATH — wchodzę..."
@@ -49,7 +62,17 @@ else
     echo "✓ Utworzono: $PROJECT_PATH"
 fi
 
-SESSION_NAME="claude-$(basename "$PROJECT_PATH")"
+# Nazwa sesji tmux uwzględnia ścieżkę względem PROJECTS_DIR (nie sam basename),
+# żeby dwa projekty o tej samej nazwie folderu (np. "zadaniex" w dwóch różnych
+# projektach klienckich) nie dostały tej samej sesji tmux.
+PROJECT_PATH_REAL="$(cd "$PROJECT_PATH" 2>/dev/null && pwd -P)"
+if [ -n "$PROJECTS_DIR_REAL" ] && [ -n "$PROJECT_PATH_REAL" ] && { [ "$PROJECT_PATH_REAL" = "$PROJECTS_DIR_REAL" ] || [[ "$PROJECT_PATH_REAL" == "$PROJECTS_DIR_REAL"/* ]]; }; then
+    REL="${PROJECT_PATH_REAL#$PROJECTS_DIR_REAL}"
+    REL="${REL#/}"
+    SESSION_NAME="claude-${REL//\//-}"
+else
+    SESSION_NAME="claude-$(basename "$PROJECT_PATH")"
+fi
 
 if [ "$TMUX_ENABLED" = "true" ]; then
     if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
